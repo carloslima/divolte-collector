@@ -36,6 +36,9 @@ import java.util.stream.Stream;
 
 import javax.annotation.ParametersAreNonnullByDefault;
 
+import com.codahale.metrics.Gauge;
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.SharedMetricRegistries;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,6 +59,7 @@ public class ProcessingPool<T extends ItemProcessor<E>, E> {
 
     private final Supplier<T> processorSupplier;
 
+    private final MetricRegistry metrics = SharedMetricRegistries.getOrCreate("divolte");
 
     public ProcessingPool(
             final int numThreads,
@@ -82,6 +86,16 @@ public class ProcessingPool<T extends ItemProcessor<E>, E> {
                 queue,
                 processorSupplier.get()));
 
+        metrics.register(MetricRegistry.name(this.getClass(), threadBaseName, "queueSize"), new Gauge<Integer>() {
+            @Override
+            public Integer getValue() {
+                return queueSize();
+            }
+        });
+    }
+
+    public int queueSize() {
+        return queues.stream().mapToInt(q -> q.size()).sum();
     }
 
     public void enqueue(final Item<E> item) {

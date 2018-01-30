@@ -18,6 +18,10 @@ package io.divolte.server;
 
 import java.util.Optional;
 
+import com.codahale.metrics.MetricRegistry;
+import com.codahale.metrics.SharedMetricRegistries;
+import com.codahale.metrics.Timer;
+
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericRecord;
 import org.slf4j.Logger;
@@ -34,6 +38,7 @@ import io.divolte.server.recordmapping.UserAgentParserAndCache;
 
 public class Mapping {
     private static final Logger logger = LoggerFactory.getLogger(Mapping.class);
+    private final MetricRegistry metrics = SharedMetricRegistries.getOrCreate("divolte");
 
     private final DslRecordMapper mapper;
     private final boolean keepCorrupted;
@@ -99,10 +104,12 @@ public class Mapping {
         return result;
     }
 
+    private final Timer mappings = metrics.timer(MetricRegistry.name(this.getClass(), "mappings"));
     public Optional<Item<AvroRecordBuffer>> map(final Item<UndertowEvent> originalIem, final DivolteEvent parsedEvent, final boolean duplicate) {
         if (
                 (keepDuplicates || !duplicate) &&
                 (keepCorrupted || !parsedEvent.corruptEvent)) {
+            final Timer.Context context = mappings.time();
             final GenericRecord avroRecord = mapper.newRecordFromExchange(parsedEvent);
             final AvroRecordBuffer avroBuffer = AvroRecordBuffer.fromRecord(
                     parsedEvent.partyId,
@@ -115,6 +122,7 @@ public class Mapping {
              * In the many-to-many setup, this call is potentially amplified.
              */
             listener.incomingRequest(parsedEvent, avroBuffer, avroRecord);
+            context.stop();
 
             return Optional.of(Item.withCopiedAffinity(mappingIndex, originalIem, avroBuffer));
         } else {
